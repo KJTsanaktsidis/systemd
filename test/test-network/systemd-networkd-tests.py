@@ -1833,6 +1833,7 @@ class NetworkdNetworkDHCPClientTests(unittest.TestCase, Utilities):
         'dhcp-client-ipv4-dhcp-settings.network',
         'dhcp-client-ipv4-only-ipv6-disabled.network',
         'dhcp-client-ipv4-only.network',
+        'dhcp-client-ipv4-source-routing-rules.network',
         'dhcp-client-ipv6-only.network',
         'dhcp-client-ipv6-rapid-commit.network',
         'dhcp-client-listen-port.network',
@@ -1991,6 +1992,18 @@ class NetworkdNetworkDHCPClientTests(unittest.TestCase, Utilities):
         print(output)
         self.assertRegex(output, 'veth99 proto dhcp')
         self.assertRegex(output, '192.168.5.1')
+
+    def test_dhcp_source_routing_rules(self):
+        self.copy_unit_to_networkd_unit_path('25-veth.netdev', 'dhcp-v4-server-veth-peer.network', 'dhcp-client-ipv4-source-routing-rules.network')
+        self.start_networkd()
+        self.wait_online(['veth-peer:carrier'])
+        self.start_dnsmasq()
+        self.wait_online(['veth99:routable', 'veth-peer:routable'])
+
+        rule_regex = r'23:\s+from 192\.168\.5\.[0-9]* lookup 13'
+        output = subprocess.check_output(['ip', 'rule', 'list']).rstrip().decode('utf-8')
+        print(output)
+        self.assertRegex(output, rule_regex)
 
     def test_dhcp_route_metric(self):
         self.copy_unit_to_networkd_unit_path('25-veth.netdev', 'dhcp-v4-server-veth-peer.network', 'dhcp-client-route-metric.network')

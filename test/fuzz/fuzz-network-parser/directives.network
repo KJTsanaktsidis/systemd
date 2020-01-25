@@ -57,6 +57,8 @@ ClientIdentifier=
 ListenPort=
 UseTimezone=
 RouteTable=
+EnableSourceRoutingRules=
+SourceRoutingRulesPriority=
 [Route]
 Destination=
 Protocol=

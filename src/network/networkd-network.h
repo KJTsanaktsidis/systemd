@@ -131,6 +131,8 @@ struct Network {
         bool rapid_commit;
         bool dhcp_use_hostname;
         bool dhcp_route_table_set;
+        bool dhcp_source_routing_enabled;
+        uint32_t dhcp_source_routing_rule_priority;
         DHCPUseDomains dhcp_use_domains;
 
         /* DHCP Server Support */

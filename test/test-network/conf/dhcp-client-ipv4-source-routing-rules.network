@@ -1,0 +1,12 @@
+[Match]
+Name=veth99
+
+[Network]
+DHCP=ipv4
+IPv6AcceptRA=false
+
+[DHCP]
+UseRoutes=true
+RouteTable=13
+EnableSourceRoutingRules=yes
+SourceRoutingRulesPriority=23

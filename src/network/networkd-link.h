@@ -34,6 +34,7 @@ typedef struct Manager Manager;
 typedef struct Network Network;
 typedef struct Address Address;
 typedef struct DUID DUID;
+typedef struct RoutingPolicyRule RoutingPolicyRule;
 
 typedef struct Link {
         Manager *manager;
@@ -84,6 +85,7 @@ typedef struct Link {
         unsigned dhcp4_messages;
         bool dhcp4_configured;
         bool dhcp6_configured;
+        RoutingPolicyRule *dhcp4_source_routing_policy_rule;
 
         unsigned ndisc_messages;
         bool ndisc_configured;
