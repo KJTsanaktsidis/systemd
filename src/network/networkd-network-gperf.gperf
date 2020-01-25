@@ -285,6 +285,10 @@ TrafficControlQueueingDiscipline.ControlledDelayTargetSec,                   con
 TrafficControlQueueingDiscipline.ControlledDelayIntervalSec,                 config_parse_tc_controlled_delay_usec,                       0, 0
 TrafficControlQueueingDiscipline.ControlledDelayCEThresholdSec,              config_parse_tc_controlled_delay_usec,                       0, 0
 TrafficControlQueueingDiscipline.ControlledDelayECN,                         config_parse_tc_controlled_delay_bool,                       0, 0
+IPv4SourceRoutingRules.Enabled,         config_parse_bool,                               0,                             offsetof(Network, ipv4_sourceroute_enabled)
+IPv4SourceRoutingRules.Priority,        config_parse_uint32,                             0,                             offsetof(Network, ipv4_sourceroute_priority)
+IPv6SourceRoutingRules.Enabled,         config_parse_bool,                               0,                             offsetof(Network, ipv6_sourceroute_enabled)
+IPv6SourceRoutingRules.Priority,        config_parse_uint32,                             0,                             offsetof(Network, ipv6_sourceroute_priority)
 /* backwards compatibility: do not add new entries to this section */
 Network.IPv4LL,                         config_parse_ipv4ll,                             0,                             offsetof(Network, link_local)
 DHCP.ClientIdentifier,                  config_parse_dhcp_client_identifier,             0,                             offsetof(Network, dhcp_client_identifier)

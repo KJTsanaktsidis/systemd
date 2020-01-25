@@ -897,6 +897,75 @@ static void link_enter_configured(Link *link) {
         link_dirty(link);
 }
 
+static int add_source_route_rules(Link *link) {
+        Address *addr;
+        Iterator i;
+        int r;
+
+        SET_FOREACH(addr, link->addresses, i) {
+                _cleanup_(routing_policy_rule_freep) RoutingPolicyRule *new_source_route_rule;
+                _cleanup_free_ char *from_addr_str = NULL;
+                RoutingPolicyRule *rule;
+                bool has_rule_already;
+
+                r = routing_policy_rule_new(&new_source_route_rule);
+                if (r < 0)
+                        return r;
+
+                switch(addr->family) {
+                case AF_INET:
+                        if (!link->network->ipv4_sourceroute_enabled)
+                                continue;
+                        new_source_route_rule->from.in = addr->in_addr.in;
+                        new_source_route_rule->from_prefixlen = addr->prefixlen;
+                        new_source_route_rule->family = addr->family;
+                        new_source_route_rule->priority = link->network->ipv4_sourceroute_priority;
+                        if (link->network->dhcp_route_table_set)
+                                new_source_route_rule->table = link->network->dhcp_route_table;
+                        break;
+                case AF_INET6:
+                        if (!link->network->ipv6_sourceroute_enabled)
+                                continue;
+                        new_source_route_rule->from.in6 = addr->in_addr.in6;
+                        new_source_route_rule->from_prefixlen = addr->prefixlen;
+                        new_source_route_rule->family = addr->family;
+                        new_source_route_rule->priority = link->network->ipv6_sourceroute_priority;
+                        if (link->network->ipv6_accept_ra_route_table_set)
+                                new_source_route_rule->table = link->network->ipv6_accept_ra_route_table;
+                        break;
+                default:
+                        // Don't know how to make a source-route rule for this
+                        continue;
+                }
+
+                // Append it to link->network->rules IFF its not already there.
+                // link_request_set_routing_policy_rule then takes care of claiming any foreign version of
+                // the rule if required.
+                has_rule_already = false;
+                LIST_FOREACH(rules, rule, link->network->rules) {
+                        if (routing_policy_rule_compare_func(rule, new_source_route_rule) == 0) {
+                                has_rule_already = true;
+                                break;
+                        }
+                }
+                if (!has_rule_already) {
+                        if (DEBUG_LOGGING) {
+                                (void) in_addr_to_string(addr->family, &addr->in_addr, &from_addr_str);
+                        }
+                        log_link_debug(
+                                link, "Adding source routing rule %s/%d -> *; pri %d; family %d",
+                                from_addr_str,
+                                new_source_route_rule->from_prefixlen,
+                                new_source_route_rule->priority,
+                                new_source_route_rule->family
+                        );
+                        LIST_APPEND(rules, link->network->rules, new_source_route_rule);
+                        new_source_route_rule = NULL;
+                }
+        }
+        return 0;
+}
+
 static int link_request_set_routing_policy_rule(Link *link) {
         RoutingPolicyRule *rule, *rrule = NULL;
         int r;
@@ -905,6 +974,11 @@ static int link_request_set_routing_policy_rule(Link *link) {
         assert(link->network);
 
         link->routing_policy_rules_configured = false;
+
+        r = add_source_route_rules(link);
+        if (r < 0) {
+                return log_link_warning_errno(link, r, "Could not configure source routing rules: %m");
+        }
 
         LIST_FOREACH(rules, rule, link->network->rules) {
                 r = routing_policy_rule_get(link->manager, rule, &rrule);

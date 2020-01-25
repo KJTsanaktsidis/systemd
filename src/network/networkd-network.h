@@ -222,6 +222,11 @@ struct Network {
         union in_addr_union ipv6_token;
         IPv6PrivacyExtensions ipv6_privacy_extensions;
 
+        bool ipv4_sourceroute_enabled;
+        uint32_t ipv4_sourceroute_priority;
+        bool ipv6_sourceroute_enabled;
+        uint32_t ipv6_sourceroute_priority;
+
         struct ether_addr *mac;
         uint32_t mtu;
         int arp;

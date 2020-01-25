@@ -481,7 +481,9 @@ int network_load_one(Manager *manager, OrderedHashmap **networks, const char *fi
                               "IPv6Prefix\0"
                               "IPv6RoutePrefix\0"
                               "TrafficControlQueueingDiscipline\0"
-                              "CAN\0",
+                              "CAN\0"
+                              "IPv4SourceRoutingRules\0"
+                              "IPv6SourceRoutingRules\0",
                               config_item_perf_lookup, network_network_gperf_lookup,
                               CONFIG_PARSE_WARN, network);
         if (r < 0)

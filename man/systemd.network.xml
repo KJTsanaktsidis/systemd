@@ -2594,6 +2594,53 @@
   </refsect1>
 
   <refsect1>
+    <title>[IPv4SourceRouting] Section Options</title>
+    <para>The <literal>[IPv4SourceRouting]</literal>section is used to configure source routing for an interface.
+    When combined with setting an explicit route table for DHCPv4 (with the <literal>RouteTable=</literal>) option,
+    this causes routing policy rules to be automatically be created for all addresses on the interface, of the form
+    "from $address lookup $routetable".
+
+    <variablelist class='network-directives'>
+      <varlistentry>
+        <term><varname>Enabled=</varname></term>
+        <listitem>
+          <para>Set to "yes" or "true" to enable the IPv4 source routing functionality</para>
+        </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term><varname>Priority=</varname></term>
+        <listitem>
+          <para>Controls the priority of the routing policy rules that get created</para>
+        </listitem>
+      </varlistentry>
+    </variablelist>
+  </refsect1>
+
+  <refsect1>
+    <title>[IPv6SourceRouting] Section Options</title>
+    <para>The <literal>[IPv6SourceRouting]</literal>section is used to configure source routing for an interface.
+    When combined with setting an explicit route table for IPv6AcceptRA (with the <literal>RouteTable=</literal>) option,
+    this causes routing policy rules to be automatically be created for all addresses on the interface, of the form
+    "from $address lookup $routetable".
+
+    <variablelist class='network-directives'>
+      <varlistentry>
+        <term><varname>Enabled=</varname></term>
+        <listitem>
+          <para>Set to "yes" or "true" to enable the IPv6 source routing functionality</para>
+        </listitem>
+      </varlistentry>
+      <varlistentry>
+        <term><varname>Priority=</varname></term>
+        <listitem>
+          <para>Controls the priority of the routing policy rules that get created</para>
+        </listitem>
+      </varlistentry>
+    </variablelist>
+  </refsect1>
+
+
+  <refsect1>
     <title>Examples</title>
     <example>
       <title>Static network configuration</title>
