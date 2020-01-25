@@ -13,6 +13,7 @@
 #include "networkd-link.h"
 #include "networkd-manager.h"
 #include "networkd-network.h"
+#include "networkd-routing-policy-rule.h"
 #include "string-table.h"
 #include "string-util.h"
 #include "sysctl-util.h"
@@ -20,6 +21,7 @@
 static int dhcp_remove_routes(Link *link, sd_dhcp_lease *lease, const struct in_addr *address, bool remove_all);
 static int dhcp_remove_router(Link *link, sd_dhcp_lease *lease, const struct in_addr *address, bool remove_all);
 static int dhcp_remove_dns_routes(Link *link, sd_dhcp_lease *lease, const struct in_addr *address, bool remove_all);
+static int dhcp4_remove_source_routing_policy_rule(Link *link, sd_dhcp_lease *lease, const struct in_addr *address, bool remove_all);
 static int dhcp_remove_address(Link *link, sd_dhcp_lease *lease, const struct in_addr *address, link_netlink_message_handler_t callback);
 static int dhcp_remove_address_handler(sd_netlink *rtnl, sd_netlink_message *m, Link *link);
 static int dhcp_lease_renew(sd_dhcp_client *client, Link *link);
@@ -40,6 +42,7 @@ void dhcp4_release_old_lease(Link *link) {
         (void) dhcp_remove_routes(link, link->dhcp_lease_old, &address_old, false);
         (void) dhcp_remove_router(link, link->dhcp_lease_old, &address_old, false);
         (void) dhcp_remove_dns_routes(link, link->dhcp_lease_old, &address_old, false);
+        (void) dhcp4_remove_source_routing_policy_rule(link, link->dhcp_lease_old, &address_old, false);
 
         if (!in4_addr_equal(&address_old, &address))
                 (void) dhcp_remove_address(link, link->dhcp_lease_old, &address_old, NULL);
@@ -94,6 +97,7 @@ static int dhcp4_route_handler(sd_netlink *rtnl, sd_netlink_message *m, Link *li
                         (void) dhcp_remove_routes(link, link->dhcp_lease, &address, true);
                         (void) dhcp_remove_router(link, link->dhcp_lease, &address, true);
                         (void) dhcp_remove_dns_routes(link, link->dhcp_lease, &address, true);
+                        (void) dhcp4_remove_source_routing_policy_rule(link, link->dhcp_lease, &address, true);
                         (void) dhcp_remove_address(link, link->dhcp_lease, &address, dhcp_remove_address_handler);
 
                         return 1;
@@ -571,6 +575,143 @@ static int dhcp_remove_dns_routes(Link *link, sd_dhcp_lease *lease, const struct
         return 0;
 }
 
+
+static int dhcp4_routing_policy_rule_handler(sd_netlink *rtnl, sd_netlink_message *m, Link *link) {
+        int r;
+
+        assert(link);
+        assert(link->dhcp4_messages > 0);
+
+        link->dhcp4_messages--;
+
+        if (IN_SET(link->state, LINK_STATE_FAILED, LINK_STATE_LINGER))
+                return 1;
+
+        r = sd_netlink_message_get_errno(m);
+        if (r < 0 && r != -EEXIST) {
+                log_link_message_warning_errno(link, m, r, "Could not set DHCPv4 routing policy rule: %m");
+                link_enter_failed(link);
+                return 1;
+        }
+
+        if (link->dhcp4_messages == 0 && !link->network->dhcp_send_decline)
+                dhcp4_check_ready(link);
+        return 1;
+}
+
+static int dhcp4_add_source_routing_policy_rule(Link *link) {
+        struct in_addr address;
+        _cleanup_(routing_policy_rule_freep) RoutingPolicyRule *rule = NULL;
+        _cleanup_free_ char *from_addr_str = NULL;
+        int r;
+
+        assert(link);
+
+        if (!link->dhcp_lease || !link->network) /* link went down while we configured the IP addresses? */
+                return 0;
+
+        if (!link->network->dhcp_source_routing_enabled)
+                return 0;
+
+        r = sd_dhcp_lease_get_address(link->dhcp_lease, &address);
+        if (r < 0)
+                return log_link_warning_errno(link, r, "DHCP error: no address: %m");
+
+        r = routing_policy_rule_new(&rule);
+        if (r < 0)
+                return log_oom();
+
+        rule->from.in = address;
+        rule->from_prefixlen = 32;
+        rule->family = AF_INET;
+        rule->priority = link->network->dhcp_source_routing_rule_priority;
+        if (link->network->dhcp_route_table_set)
+                rule->table = link->network->dhcp_route_table;
+
+        if (DEBUG_LOGGING) {
+                const union in_addr_union address_union = { .in = address };
+                (void) in_addr_to_string(AF_INET, &address_union, &from_addr_str);
+        }
+
+        /* Only actually add the rule if we didn't already add the same rule from a
+        previous lease. Otherwise, routing_policy_rule_configure will error with -EEXIST */
+        if (
+                link->dhcp4_source_routing_policy_rule &&
+                routing_policy_rule_compare_func(link->dhcp4_source_routing_policy_rule, rule)
+        ) {
+                log_link_debug(link, "New and old source routing rules are the same, won't reconfigure");
+                return 0;
+        }
+        /* Now, if we really are going to set up a new routing policy rule, free the old one.
+        The dhcp4_remove_source_routing_policy_rule function will take care of actually calling
+        routing_policy_rule_remove based on the old lease address later on */
+        if (link->dhcp4_source_routing_policy_rule)
+                routing_policy_rule_free(TAKE_PTR(link->dhcp4_source_routing_policy_rule));
+
+
+        log_link_debug(
+                link, "Adding source routing rule %s/%d -> * table %d pri %d family %d",
+                from_addr_str,
+                rule->from_prefixlen,
+                rule->table,
+                rule->priority,
+                rule->family
+        );
+
+        r = routing_policy_rule_configure(rule, link, dhcp4_routing_policy_rule_handler);
+        if (r <= 0)
+                return r;
+
+        link->dhcp4_messages++;
+        link->dhcp4_source_routing_policy_rule = TAKE_PTR(rule);
+        return 0;
+}
+
+static int dhcp4_remove_source_routing_policy_rule(Link *link, sd_dhcp_lease *lease, const struct in_addr *address, bool remove_all) {
+        _cleanup_(routing_policy_rule_freep) RoutingPolicyRule *rule = NULL;
+        _cleanup_free_ char *from_addr_str = NULL;
+        int r;
+
+        assert(link);
+        assert(address);
+
+        if (!link->network->dhcp_source_routing_enabled)
+                return 0;
+
+        r = routing_policy_rule_new(&rule);
+        if (r < 0)
+                return log_oom();
+
+        rule->from.in = *address;
+        rule->from_prefixlen = 32;
+        rule->family = AF_INET;
+        rule->priority = link->network->dhcp_source_routing_rule_priority;
+        if (link->network->dhcp_route_table_set)
+                rule->table = link->network->dhcp_route_table;
+
+        if (!remove_all && link->dhcp4_source_routing_policy_rule &&
+                routing_policy_rule_compare_func(rule, link->dhcp4_source_routing_policy_rule) == 0
+        )
+                return 0;
+
+
+        if (DEBUG_LOGGING) {
+                const union in_addr_union address_union = { .in = *address };
+                (void) in_addr_to_string(AF_INET, &address_union, &from_addr_str);
+        }
+        log_link_debug(
+                link, "Removing source routing rule %s/%d -> * table %d pri %d family %d",
+                from_addr_str,
+                rule->from_prefixlen,
+                rule->table,
+                rule->priority,
+                rule->family
+        );
+
+        (void) routing_policy_rule_remove(rule, link, NULL);
+        return 0;
+}
+
 static int dhcp_remove_address_handler(sd_netlink *rtnl, sd_netlink_message *m, Link *link) {
         int r;
 
@@ -686,6 +827,7 @@ static int dhcp_lease_lost(Link *link) {
         (void) dhcp_remove_routes(link, link->dhcp_lease, &address, true);
         (void) dhcp_remove_router(link, link->dhcp_lease, &address, true);
         (void) dhcp_remove_dns_routes(link, link->dhcp_lease, &address, true);
+        (void) dhcp4_remove_source_routing_policy_rule(link, link->dhcp_lease, &address, true);
         (void) dhcp_remove_address(link, link->dhcp_lease, &address, NULL);
         (void) dhcp_reset_mtu(link);
         (void) dhcp_reset_hostname(link);
@@ -792,6 +934,12 @@ static int dhcp4_address_handler(sd_netlink *rtnl, sd_netlink_message *m, Link *
 
         /* Add back static routes since kernel removes while DHCPv4 address is removed from when lease expires */
         r = link_request_set_routes(link);
+        if (r < 0) {
+                link_enter_failed(link);
+                return 1;
+        }
+
+        r = dhcp4_add_source_routing_policy_rule(link);
         if (r < 0) {
                 link_enter_failed(link);
                 return 1;
