@@ -375,6 +375,39 @@ static int ndisc_router_process_autonomous_prefix(Link *link, sd_ndisc_router *r
         if (r > 0)
                 link->ndisc_messages++;
 
+        if (link->network->ipv6_accept_ra_source_routing_enabled) {
+                _cleanup_(routing_policy_rule_freep) RoutingPolicyRule *rule = NULL;
+                _cleanup_free_ char *from_addr_str = NULL;
+
+                r = routing_policy_rule_new(&rule);
+                if (r < 0)
+                        return log_oom();
+
+                rule->from.in6 = address->in_addr.in6;
+                rule->from_prefixlen = 128;
+                rule->family = AF_INET6;
+                rule->priority = link->network->ipv6_accept_ra_source_routing_rule_priority;
+                if (link->network->ipv6_accept_ra_route_table_set)
+                        rule->table = link->network->ipv6_accept_ra_route_table;
+
+                if (DEBUG_LOGGING) {
+                        (void) in_addr_to_string(AF_INET6, &address->in_addr, &from_addr_str);
+                }
+                log_link_debug(
+                        link, "Adding source routing rule %s/%d -> * table %d pri %d family %d",
+                        from_addr_str,
+                        rule->from_prefixlen,
+                        rule->table,
+                        rule->priority,
+                        rule->family
+                );
+                r = routing_policy_rule_configure(rule, link, ndisc_netlink_address_message_handler);
+                if (r < 0)
+                        return r;
+                if (r > 0)
+                        link->ndisc_messages++;
+        }
+
         return 0;
 }
 
