@@ -187,6 +187,8 @@ RouteTable=
 UseDNS=
 UseAutonomousPrefix=
 UseOnLinkPrefix=
+EnableSourceRoutingRules=
+SourceRoutingRulesPriority=
 [DHCPServer]
 EmitNTP=
 PoolSize=

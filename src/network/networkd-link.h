@@ -86,6 +86,7 @@ typedef struct Link {
         bool dhcp4_configured;
         bool dhcp6_configured;
         RoutingPolicyRule *dhcp4_source_routing_policy_rule;
+        LIST_HEAD(RoutingPolicyRule, ipv6ndisc_source_routing_policy_rules);
 
         unsigned ndisc_messages;
         bool ndisc_configured;
