@@ -465,10 +465,67 @@ static int dhcp6_address_change(
                       addr->prefixlen, lifetime_preferred, lifetime_valid);
 
         r = address_configure(addr, link, dhcp6_address_handler, true);
-        if (r < 0)
+        if (r < 0) {
                 log_link_warning_errno(link, r, "Could not assign DHCPv6 address: %m");
+                return r;
+        }
 
-        return r;
+        if (link->network->dhcp_source_routing_enabled) {
+                _cleanup_(routing_policy_rule_freep) RoutingPolicyRule *rule = NULL;
+                RoutingPolicyRule *rrule = NULL;
+                _cleanup_free_ char *from_addr_str = NULL;
+
+                r = routing_policy_rule_new(&rule);
+                if (r < 0)
+                        return log_oom();
+
+                rule->from.in6 = addr->in_addr.in6;
+                rule->from_prefixlen = 128;
+                rule->family = AF_INET6;
+                rule->priority = link->network->dhcp_source_routing_rule_priority;
+                if (link->network->dhcp_route_table_set)
+                        rule->table = link->network->dhcp_route_table;
+
+                if (DEBUG_LOGGING) {
+                        (void) in_addr_to_string(AF_INET6, &addr->in_addr, &from_addr_str);
+                }
+                log_link_debug(
+                        link, "Adding source routing rule %s/%u -> 0.0.0.0/0 table %d priority %d family %d",
+                        from_addr_str,
+                        rule->from_prefixlen,
+                        rule->table,
+                        rule->priority,
+                        rule->family
+                );
+                r = routing_policy_rule_get(link->manager,
+                        rule->family,
+                        &rule->from,
+                        rule->from_prefixlen,
+                        &rule->to,
+                        rule->to_prefixlen,
+                        rule->tos,
+                        rule->fwmark,
+                        rule->table,
+                        rule->iif,
+                        rule->oif,
+                        rule->protocol,
+                        &rule->sport,
+                        &rule->dport,
+                        &rrule);
+                if (r == 0) {
+                        /* this means the rule already existed on the system, we just need to own it */
+                        (void) routing_policy_rule_make_local(link->manager, rrule);
+                } else if (r < 0) {
+                        /* this means we need to add the rule */
+                        r = routing_policy_rule_configure(rule, link, NULL, false);
+                        if (r < 0)
+                                return log_link_error_errno(link, r, "Failed to configure source routing policy rule");
+                        link->routing_policy_rule_messages++;
+                }
+                LIST_APPEND(rules, link->dhcp6_source_routing_policy_rules, TAKE_PTR(rule));
+        }
+
+        return 0;
 }
 
 static int dhcp6_lease_address_acquired(sd_dhcp6_client *client, Link *link) {

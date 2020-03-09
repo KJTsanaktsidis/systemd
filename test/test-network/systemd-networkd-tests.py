@@ -1836,6 +1836,7 @@ class NetworkdNetworkDHCPClientTests(unittest.TestCase, Utilities):
         'dhcp-client-ipv4-source-routing-rules.network',
         'dhcp-client-ipv6-only.network',
         'dhcp-client-ipv6-rapid-commit.network',
+        'dhcp-client-ipv6-source-routing-rules.network',
         'dhcp-client-listen-port.network',
         'dhcp-client-route-metric.network',
         'dhcp-client-route-table.network',
@@ -2003,6 +2004,17 @@ class NetworkdNetworkDHCPClientTests(unittest.TestCase, Utilities):
         rule_regex = r'23:\s+from 192\.168\.5\.[0-9]* lookup 13'
         output = subprocess.check_output(['ip', 'rule', 'list']).rstrip().decode('utf-8')
         print(output)
+        self.assertRegex(output, rule_regex)
+
+    def test_dhcp6_source_routing_rules(self):
+        self.copy_unit_to_networkd_unit_path('25-veth.netdev', 'dhcp-server-veth-peer.network', 'dhcp-client-ipv6-source-routing-rules.network')
+        self.start_networkd()
+        self.wait_online(['veth-peer:carrier'])
+        self.start_dnsmasq()
+        self.wait_online(['veth99:routable', 'veth-peer:routable'])
+
+        rule_regex = r'23:\s+from 2600::1[0-9a-f:]+ lookup 13'
+        output = subprocess.check_output(['ip', '-6', 'rule', 'list']).rstrip().decode('utf-8')
         self.assertRegex(output, rule_regex)
 
     def test_dhcp_route_metric(self):
